@@ -1,6 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:objectbox/objectbox.dart';
+import 'objectbox_store.dart';
+import 'objectbox.g.dart';
+import 'models.dart';
 
-void main() {
+late ObjectBox objectBox;
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  objectBox = await ObjectBox.create();
   runApp(const MyApp());
 }
 
@@ -26,29 +34,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class Todo {
-  String id;
-  String title;
-  String description;
-  bool isCompleted;
-
-  Todo({
-    required this.id,
-    required this.title,
-    this.description = '',
-    this.isCompleted = false,
-  });
-
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'title': title,
-      'description': description,
-      'isCompleted': isCompleted,
-    };
-  }
-}
-
 class TodoListScreen extends StatefulWidget {
   const TodoListScreen({super.key});
 
@@ -57,52 +42,64 @@ class TodoListScreen extends StatefulWidget {
 }
 
 class _TodoListScreenState extends State<TodoListScreen> {
-  final List<Todo> _todos = [];
   Filter _filter = Filter.all;
+  late Box<Todo> todoBox;
+
+  @override
+  void initState() {
+    super.initState();
+    todoBox = objectBox.todoBox;
+  }
 
   List<Todo> get filteredTodos {
+    final queryBuilder = todoBox.query();
+
     switch (_filter) {
-      case Filter.all:
-        return _todos;
       case Filter.completed:
-        return _todos.where((todo) => todo.isCompleted).toList();
+        return todoBox.query(Todo_.isCompleted.equals(true)).build().find();
       case Filter.active:
-        return _todos.where((todo) => !todo.isCompleted).toList();
+        return todoBox.query(Todo_.isCompleted.equals(false)).build().find();
+      case Filter.all:
+        return todoBox.getAll();
     }
+
+    return queryBuilder.build().find();
   }
 
   void _addTodo(String title, String description) {
-    setState(() {
-      _todos.add(
-        Todo(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          title: title,
-          description: description,
-        ),
-      );
-    });
+    final todo = Todo(
+      title: title,
+      description: description
+    );
+
+    todoBox.put(todo);
+    setState(() {});
   }
 
-  void _updateTodo(String id, String newTitle, String newDescription) {
-    setState(() {
-      int index = _todos.indexWhere((todo) => todo.id == id);
-      _todos[index].title = newTitle;
-      _todos[index].description = newDescription;
-    });
+  void _updateTodo(int id, String newTitle, String newDescription) {
+    final todo = todoBox.get(id);
+    if (todo != null) {
+      todo.title = newTitle;
+      todo.description = newDescription;
+      todoBox.put(todo);
+      setState(() {});
+    }
   }
 
-  void _toggleTodoCompletion(String id) {
-    setState(() {
-      int index = _todos.indexWhere((todo) => todo.id == id);
-      _todos[index].isCompleted = !_todos[index].isCompleted;
-    });
+  void _toggleTodoCompletion(int id) {
+    final todo = todoBox.get(id);
+    if (todo != null) {
+      todo.isCompleted = !todo.isCompleted;
+      todoBox.put(todo);
+      setState(() {});
+    }
   }
 
-  void _deleteTodo(String id) {
-    setState(() {
-      _todos.removeWhere((todo) => todo.id == id);
-    });
+  void _deleteTodo(int id) {
+    todoBox.remove(id);
+    setState(() {});
   }
+
 
   void _showAddTodoDialog() {
     showDialog(
@@ -201,7 +198,7 @@ class _TodoListScreenState extends State<TodoListScreen> {
         itemBuilder: (context, index) {
           final todo = filteredTodos[index];
           return Dismissible(
-            key: Key(todo.id),
+            key: Key(todo.id.toString()),
             background: Container(color: Colors.red),
             onDismissed: (direction) => _deleteTodo(todo.id),
             child: todo.description.isNotEmpty ? ListTile(
